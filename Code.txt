@@ -1,0 +1,237 @@
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#define USE_ARDUINO_INTERRUPTS true    // Set-up low-level interrupts for most acurate BPM math.
+#include <PulseSensorPlayground.h>     // Includes the PulseSensorPlayground Library. 
+#include <LiquidCrystal_I2C.h>
+#define CO_LED 12
+#define LED_Temperature 11
+                              //Motor A
+const int inputPin1  = 8;    // Pin 15 of L293D IC
+const int inputPin2  = 7;    // Pin 10 of L293D IC
+                              //Motor B
+const int inputPin3  = 6;    // Pin  7 of L293D IC
+const int inputPin4  = 5;    // Pin  2 of L293D IC
+int EN1 = 4;                 // Pin 1 of L293D IC
+int EN2 ;                 // Pin 9 of L293D IC
+int speed=126;
+int trigPin = 3;    // TRIG pin
+int echoPin = 2;    // ECHO pin
+int trigPin2 = 10;    // TRIG pin
+int echoPin2 = 9;    // ECHO pin
+float RS_gas = 0;
+float ratio = 0;
+float R0 = 7200.0;
+float ppm=0;
+int temperature=0,distant=0,PPM=0,BP=0;
+//  Variables for Pulse Sensor
+const int PulseWire = 1;       // PulseSensor PURPLE WIRE connected to ANALOG PIN 0
+const int LED13 = 13;          // The on-board Arduino LED, close to PIN 13.
+int Threshold = 550;           // Determine which Signal to "count as a beat" and which to ignore.
+                               // Use the "Gettting Started Project" to fine-tune Threshold Value beyond default setting.
+// const int inputto_start  = 10;                                
+PulseSensorPlayground pulseSensor;  // Creates an instance of the PulseSensorPlayground object called "pulseSensor"
+int tempPin = 3;
+float temp;
+float duration_us, distance_cm,distance[10],distance_cm_updated,distance_cm_1,duration_us_2,distance_cm_2;
+unsigned int reload = 0xF424; 
+void flash(void);
+void Gassensorcall(void);
+void Pulse_Sensor_Call(void);
+void US_2(void);
+void Temperature(void);
+void setup() {
+  Serial.begin(9600);
+  pinMode(LED13, OUTPUT); // set the digital pin as output:
+    pinMode(EN1, OUTPUT);   // where the motor is connected to
+    pinMode(EN2, OUTPUT);   // where the motor is connected to
+    pinMode(inputPin1, OUTPUT);
+    pinMode(inputPin2, OUTPUT);
+  LCDsetup();  
+  // configure the trigger pin to output mode
+  pinMode(trigPin, OUTPUT);
+  // configure the echo pin to input mode
+  pinMode(echoPin, INPUT);
+    // configure the trigger pin to output mode
+  pinMode(trigPin2, OUTPUT);
+  // configure the echo pin to input mode
+  pinMode(echoPin2, INPUT); 
+  pulseSensor.blinkOnPulse(LED13);       //auto-magically blink Arduino's LED with heartbeat.
+  // Double-check the "pulseSensor" object was created and "began" seeing a signal. 
+   if (pulseSensor.begin()) {
+    Serial.println("We created a pulseSensor Object !");  //This prints one time at Arduino power-up,  or on Arduino reset.  
+  }
+void loop() {
+LCD_Display();
+  Serial.print("distance_Fwd: ");
+  Serial.print(distance_cm_1);
+  Serial.println(" cm");
+  Serial.print("distance_Rev: ");
+  Serial.print(distance_cm_2);
+  Serial.println(" cm");
+ // if (Serial.available()) { // if there is data comming
+    String command = Serial.readStringUntil('\n'); // read string until meet newline character
+       if (command == "1") {
+      Flag=1;
+      Serial.println("FORWARD"); // reports action to smartphone app
+    } else if (command == "2") {
+     Flag=2;
+      Serial.println("REVERSE"); // reports action to smartphone app
+    }
+    else if (command=="3"){
+      Flag=3;
+        // Serial.println("STOP"); // reports action to smartphone app
+    }
+    if(Flag==1)
+    {
+    if(Flag==1 && distance_cm_1>10)
+    {
+      speed+=4;
+       Serial.println("Speed=");
+       Serial.println(speed);
+       if(speed>200)
+       {
+        speed=200;
+       }
+           analogWrite(EN1, speed);      //sets the motors speed
+        analogWrite(EN2, speed);      //sets the motors speed
+        digitalWrite(inputPin1, HIGH);
+        digitalWrite(inputPin2, LOW);
+    }
+     else if(Flag==3 && distance_cm_1>10)
+     {
+      speed=speed;
+      Serial.println("Speed=");
+       Serial.println(speed);
+     }
+     else if (Flag==4 || distance_cm_1<40)
+     {
+      Flag=7;
+      speed=126;
+        analogWrite(EN1, speed);      //sets the motors speed
+        analogWrite(EN2, speed);      //sets the motors speed
+        digitalWrite(inputPin1, LOW);
+         Serial.println("Vehicle got STOPPED due to object obstruction");
+    else if (distance_cm_1>500)
+     {
+       Serial.println("Ultrasonic sensor wrong value detection");
+     }
+       if(Flag==2 && distance_cm_1>10)
+    {
+      speed+=4;
+       Serial.println("Speed=");
+       Serial.println(speed);
+       if(speed>200)
+       {
+        speed=200;
+       }
+       analogWrite(EN1, speed);      //sets the motors speed
+        analogWrite(EN2, speed);      //sets the motors speed
+        digitalWrite(inputPin1, LOW);
+        digitalWrite(inputPin2, HIGH);
+         if (distance_cm_2<40 && Flag==2)
+         {
+           Flag=7;
+      speed=126;
+       analogWrite(EN1, speed);      //sets the motors speed
+              digitalWrite(inputPin1, LOW);
+        digitalWrite(inputPin2, LOW);
+         Serial.println("Vehicle got STOPPED due to object obstruction");
+         }
+         Gassensorcall();
+         Pulse_Sensor_Call();
+         Temperature();
+         US_2();
+void flash()
+{
+for (int i=0;i<10;i++){
+   // generate 10-microsecond pulse to TRIG pin
+    digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  // measure duration of pulse from ECHO pin
+  duration_us = pulseIn(echoPin, HIGH);
+  // calculate the distance
+  distance_cm = 0.017 * duration_us;
+  distance[i]=distance_cm;
+  distance_cm_updated +=distance[i];
+}
+ distance_cm_1=distance_cm_updated/10;
+//distant=(int)distance_cm_1;
+  if (distance_cm_1<40 && Flag==1)
+     {
+      Flag=7;
+      speed=126;
+       analogWrite(EN1, speed);      //sets the motors speed
+         Serial.println("Vehicle got STOPPED due to object obstruction");
+     }
+ //  distance_cm_1=distance_cm;
+ distance_cm_updated=0;
+}
+void Gassensorcall()
+{
+      // read the input on analog pin 0:
+    sensorValue = analogRead(A0);
+   sensor_volt = sensorValue/1024*5.0;
+   RS_gas = (5.0-sensor_volt)/sensor_volt;
+   ratio = RS_gas/R0; //Replace R0 with the value found using the sketch above
+   float x = 1538.46 * ratio;
+PPM=(int)ppm;
+   if(ppm>35)
+   {
+          digitalWrite(CO_LED, HIGH);
+          delay(10000);
+   }
+     if(ppm<35)
+   {
+          digitalWrite(CO_LED, LOW);
+   }
+   delay(1000);
+}
+void Pulse_Sensor_Call()
+{
+ myBPM = pulseSensor.getBeatsPerMinute();  // Calls function on our pulseSensor object that returns BPM as an "int".
+                                               // "myBPM" hold this BPM value now. 
+ Serial.println("♥  A HeartBeat Happened ! "); // If test is "true", print a message "a heartbeat happened".
+ Serial.print("BPM: ");                        // Print phrase "BPM: "
+ Serial.println(myBPM);   
+// Print the value inside of myBPM. 
+BP=(int)myBPM;
+  myBPM=0;
+}
+ if (30<myBPM>110)
+ {
+   Flag=7;
+      speed=110;
+       Serial.print("Blood Pressure is abnormal and vehicle is stopped");  
+ }
+void US_2(void)
+{
+ digitalWrite(trigPin2, HIGH);
+  delayMicroseconds(10);
+  duration_us_2 = pulseIn(echoPin2, HIGH);
+  // calculate the distance
+  distance_cm_2 = 0.017 * duration_us_2;
+   if (distance_cm_2<40 && Flag==2)
+     {
+      Flag=7;
+      speed=126;
+       analogWrite(EN1, speed);      //sets the motors speed
+              digitalWrite(inputPin1, LOW);
+        digitalWrite(inputPin2, LOW);
+         Serial.println("Vehicle got STOPPED due to object obstruction");
+}
+void Temperature(void)
+{
+ temp = analogRead(tempPin);
+   // read analog volt from sensor and save to variable temp
+  // temp = temp * 0.48828125;
+    temp = temp * 0.38828125;
+   Serial.print("TEMPERATURE = ");
+   Serial.print(temp); // display temperature value
+   Serial.print("*C");
+   Serial.println();
+   if (temp>40)
+   {
+       digitalWrite(LED_Temperature, HIGH);
+     Serial.print("Over Temperature WARNING!!! ");
+     delay(10000); 
